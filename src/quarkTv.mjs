@@ -203,7 +203,8 @@ export class QuarkTV {
       const files = json.data?.files || [];
       out.push(...files);
       const total = json.data?.total_count || 0;
-      if (page * pageSize >= total || files.length === 0) break;
+      // page_index is zero-based; the page just received counts toward total.
+      if ((page + 1) * pageSize >= total || files.length === 0) break;
       page++;
     }
     return out;
