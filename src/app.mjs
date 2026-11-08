@@ -306,14 +306,19 @@ export function createApp({ store, readAsset, opts = {} } = {}) {
       }
 
       // ------------------------------------------------------------- WebDAV
-      if (p.startsWith('/dav')) {
+      // A separate mount lets clients test transcoded streaming without
+      // changing the original download mount or its authentication.
+      const davRoot = p === '/dav-stream' || p.startsWith('/dav-stream/')
+        ? '/dav-stream'
+        : p === '/dav' || p.startsWith('/dav/') ? '/dav' : null;
+      if (davRoot) {
         const token = await getWebdavSecret();
         // Auth via a secret path segment (some proxies strip Authorization).
         // The secret may contain non-ASCII, so compare against the DECODED path
         // — url.pathname stays percent-encoded.
         let decoded = p;
         try { decoded = decodeURIComponent(p); } catch {}
-        const segs = decoded.slice(4).split('/'); // ['', maybeSecret, ...]
+        const segs = decoded.slice(davRoot.length).split('/'); // ['', maybeSecret, ...]
         const authed = segs[1] === token;
 
         if (!authed) {
@@ -325,7 +330,8 @@ export function createApp({ store, readAsset, opts = {} } = {}) {
             // Keep the secret inside the base: handleDav uses it as the href
             // prefix, so stripping it would drop the secret from child hrefs
             // and every follow-up request would be rejected.
-            base: authed ? '/dav/' + encodeURI(token) : '/dav',
+            base: authed ? davRoot + '/' + encodeURI(token) : davRoot,
+            linkMode: davRoot === '/dav-stream' ? 'streaming' : 'download',
             mode: MODE,
             maxSubrequests: MAX_SUBREQUESTS,
           })

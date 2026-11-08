@@ -98,12 +98,16 @@ const mimeOf = (name = '') => {
 // xmlns:D="DAV:" only binds the prefix, so unprefixed elements land in the
 // empty namespace and namespace-aware clients (网易爆米花) parse zero
 // resources, reporting "未发现可用数据".
-function propstat(item, href) {
+function propstat(item, href, { linkMode = 'download' } = {}) {
   const isDir = item.isdir === 1;
   const resourcetype = isDir
     ? '<D:resourcetype><D:collection/></D:resourcetype>'
     : '<D:resourcetype/>';
   const size = isDir ? 0 : (item.size || 0);
+  const streamedVideo = !isDir && linkMode === 'streaming' && mimeOf(item.filename).startsWith('video/');
+  // A transcode can have a different size. Let the media response supply it
+  // rather than advertising the original file length to range-based players.
+  const lengthProp = streamedVideo ? '' : `<D:getcontentlength>${size}</D:getcontentlength>`;
   const ctype = isDir ? '' : `<D:getcontenttype>${mimeOf(item.filename)}</D:getcontenttype>`;
   // href is already percent-encoded by hrefFor(); encoding again here would
   // double-escape it (%25E6...) and break clients on non-ASCII mount secrets.
@@ -112,7 +116,7 @@ function propstat(item, href) {
       <D:propstat>
         <D:prop>
           ${resourcetype}
-          <D:getcontentlength>${size}</D:getcontentlength>
+          ${lengthProp}
           ${ctype}
           <D:getetag>"${item.fid || '0'}-${size}"</D:getetag>
           <D:getlastmodified>${rfc1123(item.updated_at)}</D:getlastmodified>
@@ -147,6 +151,7 @@ const text = (status, msg, headers = {}) =>
 export async function handleDav(request, quark, {
   base = '/dav',
   mode = 'redirect',
+  linkMode = 'download',
   maxSubrequests = Infinity,
 } = {}) {
   const url = new URL(request.url);
@@ -213,7 +218,7 @@ export async function handleDav(request, quark, {
       const xml =
         '<?xml version="1.0" encoding="utf-8"?>\n' +
         '<D:multistatus xmlns:D="DAV:">\n' +
-        entries.map(([it, rel]) => propstat(it, hrefFor(it, rel))).join('\n') +
+        entries.map(([it, rel]) => propstat(it, hrefFor(it, rel), { linkMode })).join('\n') +
         '\n</D:multistatus>';
       return new Response(xml, {
         status: 207,
@@ -224,7 +229,9 @@ export async function handleDav(request, quark, {
     if (request.method === 'GET' || request.method === 'HEAD') {
       const item = await resolvePath(quark, p, budget);
       if (item.isdir === 1) return text(405, 'Directory', { 'Content-Length': '0' });
-      const link = await quark.getLink(item.fid);
+      const videoMode = linkMode === 'streaming' && mimeOf(item.filename).startsWith('video/')
+        ? 'streaming' : 'download';
+      const link = await quark.getLink(item.fid, { mode: videoMode });
       if (!link) throw Object.assign(new Error('no link'), { status: 404 });
 
       if (mode !== 'proxy') {

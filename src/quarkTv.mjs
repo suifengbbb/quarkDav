@@ -10,8 +10,8 @@ const CONF = {
   api: 'https://open-api-drive.quark.cn',
   clientID: 'd3194e61504e493eb6222857bccfed94',
   signKey: 'kw2dvtd7p4t3pjl2d9ed9yc8yej8kw2d',
-  appVer: '1.5.6',
-  channel: 'CP',
+  appVer: '1.8.2.2',
+  channel: 'GENERAL',
   codeApi: 'http://api.extscreen.com/quarkdrive',
 };
 
@@ -210,7 +210,21 @@ export class QuarkTV {
     return out;
   }
 
-  async getLink(fid) {
+  async getLink(fid, { mode = 'download' } = {}) {
+    // The optional TV streaming operation returns Quark-transcoded video URLs.
+    // Keep the original download operation as the default for existing mounts.
+    if (mode === 'streaming') {
+      const json = await this._request('GET', '/file', {
+        method: 'streaming',
+        group_by: 'source',
+        fid,
+        resolution: 'low,normal,high,super,2k,4k',
+        support: 'dolby_vision',
+      });
+      const stream = (json.data?.video_info || []).find((info) => info.url);
+      if (!stream) throw new Error('No available video stream; use the original /dav mount');
+      return stream.url;
+    }
     const json = await this._request('GET', '/file', {
       method: 'download',
       group_by: 'source',
